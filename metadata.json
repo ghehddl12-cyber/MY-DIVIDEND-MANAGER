@@ -1,0 +1,6 @@
+{
+  "name": "나의 배당 매니저",
+  "description": "A modern, intuitive stock and ETF dividend tracking and simulation application.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
