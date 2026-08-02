@@ -2,13 +2,15 @@ import { useState, useEffect, FormEvent } from 'react';
 import { Target, Edit3, CheckCircle2, TrendingUp, Sparkles, PieChart, ShieldCheck, ArrowRight, Lightbulb } from 'lucide-react';
 import { Asset, PortfolioStats } from '../types';
 import { cn, formatCurrency } from '../lib/utils';
+import { supabase } from '../lib/supabaseClient';
 
 interface DividendGoalTrackerProps {
   stats: PortfolioStats;
   assets: Asset[];
+  userId: string;
 }
 
-const GOAL_STORAGE_KEY = 'divitrack_monthly_goal_v1';
+const GOAL_SETTING_KEY = 'monthly_goal';
 
 // Helper to format numbers with commas (thousands separator)
 const formatNumberWithCommas = (value: string | number) => {
@@ -33,32 +35,45 @@ const MILESTONES = [
   { id: 6, title: '완전한 파이어족', amount: 3000000, desc: '배당금만으로 생계 가능한 경제적 자유' },
 ];
 
-export function DividendGoalTracker({ stats, assets }: DividendGoalTrackerProps) {
+export function DividendGoalTracker({ stats, assets, userId }: DividendGoalTrackerProps) {
   const [monthlyTarget, setMonthlyTarget] = useState<number>(500000); // 기본값: 월 50만원
   const [isEditing, setIsEditing] = useState(false);
   const [tempTargetInput, setTempTargetInput] = useState<string>('500,000');
 
-  // Load target goal from localStorage
+  // Load target goal from Supabase
   useEffect(() => {
-    const savedGoal = localStorage.getItem(GOAL_STORAGE_KEY);
-    if (savedGoal) {
-      const parsed = parseFloat(savedGoal);
-      if (!isNaN(parsed) && parsed > 0) {
-        setMonthlyTarget(parsed);
-        setTempTargetInput(formatNumberWithCommas(parsed));
-      }
-    } else {
-      setTempTargetInput(formatNumberWithCommas(500000));
-    }
-  }, []);
+    let cancelled = false;
+    supabase
+      .from('user_settings')
+      .select('value')
+      .eq('user_id', userId)
+      .eq('key', GOAL_SETTING_KEY)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        const parsed = data?.value != null ? Number(data.value) : NaN;
+        if (!isNaN(parsed) && parsed > 0) {
+          setMonthlyTarget(parsed);
+          setTempTargetInput(formatNumberWithCommas(parsed));
+        } else {
+          setTempTargetInput(formatNumberWithCommas(500000));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
-  const handleSaveGoal = (e: FormEvent) => {
+  const handleSaveGoal = async (e: FormEvent) => {
     e.preventDefault();
     const val = parseFormattedNumber(tempTargetInput);
     if (!isNaN(val) && val > 0) {
       setMonthlyTarget(val);
-      localStorage.setItem(GOAL_STORAGE_KEY, val.toString());
       setIsEditing(false);
+      const { error } = await supabase
+        .from('user_settings')
+        .upsert({ user_id: userId, key: GOAL_SETTING_KEY, value: val, updated_at: new Date().toISOString() });
+      if (error) console.error('목표 금액 저장 실패', error);
     }
   };
 
@@ -384,4 +399,3 @@ export function DividendGoalTracker({ stats, assets }: DividendGoalTrackerProps)
     </div>
   );
 }
-

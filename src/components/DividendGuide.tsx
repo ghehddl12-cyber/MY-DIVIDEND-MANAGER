@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
 import { BookOpen, CheckCircle2, Circle, ArrowRight, Trophy, Play, Check } from 'lucide-react';
 import { ViewState } from '../types';
+import { supabase } from '../lib/supabaseClient';
 
 interface DividendGuideProps {
   onChangeView: (view: ViewState) => void;
+  userId: string;
 }
+
+const GUIDE_SETTING_KEY = 'guide_progress';
 
 interface GuideStep {
   id: string;
@@ -64,22 +68,39 @@ const GUIDE_STEPS: GuideStep[] = [
   },
 ];
 
-export function DividendGuide({ onChangeView }: DividendGuideProps) {
-  const [completedSteps, setCompletedSteps] = useState<string[]>(() => {
-    const saved = localStorage.getItem('divitrack_guide_progress_v1');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return [];
-      }
-    }
-    return [];
-  });
+export function DividendGuide({ onChangeView, userId }: DividendGuideProps) {
+  const [completedSteps, setCompletedSteps] = useState<string[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem('divitrack_guide_progress_v1', JSON.stringify(completedSteps));
-  }, [completedSteps]);
+    let cancelled = false;
+    supabase
+      .from('user_settings')
+      .select('value')
+      .eq('user_id', userId)
+      .eq('key', GUIDE_SETTING_KEY)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        if (Array.isArray(data?.value)) {
+          setCompletedSteps(data.value as string[]);
+        }
+        setIsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    supabase
+      .from('user_settings')
+      .upsert({ user_id: userId, key: GUIDE_SETTING_KEY, value: completedSteps, updated_at: new Date().toISOString() })
+      .then(({ error }) => {
+        if (error) console.error('가이드 진행상태 저장 실패', error);
+      });
+  }, [completedSteps, isLoaded, userId]);
 
   const toggleStep = (id: string) => {
     setCompletedSteps(prev => 
@@ -214,7 +235,7 @@ export function DividendGuide({ onChangeView }: DividendGuideProps) {
         
         {/* Footer info */}
         <div className="text-center mt-12 pb-8">
-          <p className="text-xs text-slate-400 font-medium">진행 상황은 브라우저에 안전하게 저장됩니다.</p>
+          <p className="text-xs text-slate-400 font-medium">진행 상황은 내 계정에 안전하게 저장됩니다.</p>
         </div>
       </div>
     </div>

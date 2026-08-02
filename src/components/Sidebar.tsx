@@ -1,13 +1,15 @@
-import { LayoutDashboard, Target, Calendar, Calculator, PieChart, Repeat, Scale, BookOpen, PiggyBank } from 'lucide-react';
+import { LayoutDashboard, Target, Calendar, Calculator, PieChart, Repeat, Scale, BookOpen, PiggyBank, LogOut } from 'lucide-react';
 import { ViewState } from '../types';
 import { cn } from '../lib/utils';
+import { supabase } from '../lib/supabaseClient';
 
 interface SidebarProps {
   currentView: ViewState;
   onChangeView: (view: ViewState) => void;
+  userEmail?: string;
 }
 
-export function Sidebar({ currentView, onChangeView }: SidebarProps) {
+export function Sidebar({ currentView, onChangeView, userEmail }: SidebarProps) {
   const navItems = [
     { id: 'dashboard' as ViewState, label: '배당 대시보드', icon: LayoutDashboard },
     { id: 'guide' as ViewState, label: '시작 가이드', icon: BookOpen },
@@ -53,11 +55,18 @@ export function Sidebar({ currentView, onChangeView }: SidebarProps) {
         })}
       </nav>
 
-      <div className="p-4 border-t border-slate-100 bg-slate-50/60">
+      <div className="p-4 border-t border-slate-100 bg-slate-50/60 space-y-2">
         <div className="p-3 bg-white rounded-xl border border-slate-200/80 shadow-2xs">
+          {userEmail && <p className="text-[11px] text-slate-500 font-semibold truncate mb-1">{userEmail}</p>}
           <p className="text-xs text-slate-800 font-bold mb-0.5">나의 배당 매니저</p>
           <p className="text-[10px] text-slate-400 font-medium">© 2026 Dividend Manager</p>
         </div>
+        <button
+          onClick={() => supabase.auth.signOut()}
+          className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-bold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+        >
+          <LogOut className="w-3.5 h-3.5" /> 로그아웃
+        </button>
       </div>
     </aside>
   );
