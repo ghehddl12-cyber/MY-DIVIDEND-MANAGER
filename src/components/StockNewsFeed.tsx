@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Newspaper, ExternalLink, Sparkles, Filter, ChevronRight, X, Clock, Tag } from 'lucide-react';
+import { Newspaper, ExternalLink, Sparkles, Filter, ChevronRight, X, Clock, Tag, Info } from 'lucide-react';
 import { Asset } from '../types';
 
 interface NewsArticle {
@@ -20,6 +20,9 @@ interface StockNewsFeedProps {
   assets: Asset[];
 }
 
+// ⚠️ 아래 뉴스 항목은 실시간으로 수집되는 실제 기사가 아니라,
+// UI/UX를 보여주기 위한 예시(데모) 데이터입니다. 실제 서비스 연동 전까지는
+// 화면에도 "예시 데이터"임을 명시적으로 안내합니다.
 const MOCK_NEWS_ITEMS: NewsArticle[] = [
   {
     id: 'n1',
@@ -138,6 +141,14 @@ export function StockNewsFeed({ assets }: StockNewsFeedProps) {
           </span>
         </div>
 
+        {/* 예시 데이터 안내 배너 */}
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+          <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-amber-800 leading-relaxed">
+            <span className="font-bold">예시 데이터입니다.</span> 아래 뉴스는 실시간으로 수집된 실제 기사가 아니라 화면 구성을 보여주기 위한 데모 콘텐츠이며, 실제 투자 판단의 근거로 사용하지 마세요.
+          </p>
+        </div>
+
         {/* Ticker Filter Buttons Bar */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-2 border-t border-slate-100">
           <button
@@ -236,6 +247,13 @@ export function StockNewsFeed({ assets }: StockNewsFeedProps) {
 
             {/* Modal Content */}
             <div className="p-5 overflow-y-auto space-y-4 text-xs text-slate-700 leading-relaxed">
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  이 기사는 실제 언론사에서 수집된 뉴스가 아닌 예시 데이터입니다.
+                </p>
+              </div>
+
               <p className="text-sm font-medium text-slate-800 bg-blue-50/60 p-3.5 rounded-xl border border-blue-100 text-blue-950">
                 {activeArticle.summary}
               </p>
