@@ -39,11 +39,12 @@ import { DividendLedger } from './DividendLedger';
 
 interface CalendarViewProps {
   assets: Asset[];
+  userId: string;
 }
 
 type ViewMode = 'calendar' | 'list' | 'grid';
 
-export function CalendarView({ assets }: CalendarViewProps) {
+export function CalendarView({ assets, userId }: CalendarViewProps) {
   const [tabMode, setTabMode] = useState<'calendar' | 'ledger'>('calendar');
   const [viewMode, setViewMode] = useState<ViewMode>('calendar');
   const [calendarScale, setCalendarScale] = useState<'month' | 'week' | 'year'>('month');
@@ -219,7 +220,7 @@ export function CalendarView({ assets }: CalendarViewProps) {
       </div>
 
       {tabMode === 'ledger' ? (
-        <DividendLedger assets={assets} />
+        <DividendLedger assets={assets} userId={userId} />
       ) : (
         <>
           {/* Title & Quick Stats Bar */}
@@ -777,5 +778,3 @@ export function CalendarView({ assets }: CalendarViewProps) {
     </div>
   );
 }
-
-
