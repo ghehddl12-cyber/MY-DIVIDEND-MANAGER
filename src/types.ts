@@ -27,7 +27,26 @@ export interface Asset {
   lastPurchasePrice?: number;
 }
 
-export type ViewState = 'dashboard' | 'goal' | 'calendar' | 'calculator' | 'report';
+export type ViewState = 'dashboard' | 'goal' | 'calendar' | 'calculator' | 'report' | 'drip' | 'rebalance' | 'guide' | 'tax';
+
+export interface Portfolio {
+  id: string;
+  name: string;
+  isReal: boolean; // true = 실제 보유 포트폴리오, false = 가상 시뮬레이션 포트폴리오
+  description?: string;
+  assets: Asset[];
+}
+
+export interface DividendRecord {
+  id: string;
+  assetId?: string;
+  ticker: string;
+  assetName: string;
+  receivedDate: string; // YYYY-MM-DD
+  amount: number; // 세후 입금 금액
+  tax?: number; // 세금
+  memo?: string;
+}
 
 export interface PortfolioStats {
   totalValue: number;

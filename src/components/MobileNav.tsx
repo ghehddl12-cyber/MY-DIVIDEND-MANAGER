@@ -1,4 +1,4 @@
-import { LayoutDashboard, Target, Calendar, Calculator, PieChart } from 'lucide-react';
+import { LayoutDashboard, Target, Calendar, Calculator, PieChart, Repeat, Scale, BookOpen, PiggyBank } from 'lucide-react';
 import { ViewState } from '../types';
 import { cn } from '../lib/utils';
 
@@ -9,10 +9,14 @@ interface MobileNavProps {
 
 export function MobileNav({ currentView, onChangeView }: MobileNavProps) {
   const navItems = [
-    { id: 'dashboard' as ViewState, label: '배당 대시보드', icon: LayoutDashboard },
-    { id: 'goal' as ViewState, label: '배당 목표', icon: Target },
+    { id: 'dashboard' as ViewState, label: '대시보드', icon: LayoutDashboard },
+    { id: 'guide' as ViewState, label: '가이드', icon: BookOpen },
+    { id: 'goal' as ViewState, label: '목표', icon: Target },
+    { id: 'tax' as ViewState, label: '절세비교', icon: PiggyBank },
     { id: 'calendar' as ViewState, label: '캘린더', icon: Calendar },
-    { id: 'calculator' as ViewState, label: '배당 계산기', icon: Calculator },
+    { id: 'calculator' as ViewState, label: '계산기', icon: Calculator },
+    { id: 'drip' as ViewState, label: 'DRIP', icon: Repeat },
+    { id: 'rebalance' as ViewState, label: '리밸런싱', icon: Scale },
     { id: 'report' as ViewState, label: '리포트', icon: PieChart },
   ];
 

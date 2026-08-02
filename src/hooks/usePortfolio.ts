@@ -1,14 +1,17 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Asset, PortfolioStats } from '../types';
+import { Asset, Portfolio, PortfolioStats } from '../types';
 
-const STORAGE_KEY = 'divitrack_portfolio_v2';
+const PORTFOLIOS_STORAGE_KEY = 'divitrack_portfolios_v3';
+const ACTIVE_KEY = 'divitrack_active_portfolio_id_v3';
+const OLD_STORAGE_KEY = 'divitrack_portfolio_v2';
 
-const INITIAL_MOCK_DATA: Asset[] = [
+const DEFAULT_REAL_ASSETS: Asset[] = [
   {
     id: '1',
     ticker: '458730',
     name: 'TIGER 미국배당다우존스',
     type: 'ETF',
+    sector: '배당 / 지수 ETF',
     price: 10850,
     dividendYield: 3.8,
     dividendFrequency: 'Monthly',
@@ -23,6 +26,7 @@ const INITIAL_MOCK_DATA: Asset[] = [
     ticker: '448290',
     name: 'SOL 미국배당다우존스',
     type: 'ETF',
+    sector: '배당 / 지수 ETF',
     price: 10600,
     dividendYield: 3.75,
     dividendFrequency: 'Monthly',
@@ -37,6 +41,7 @@ const INITIAL_MOCK_DATA: Asset[] = [
     ticker: '441680',
     name: 'ACE 미국배당다우존스',
     type: 'ETF',
+    sector: '배당 / 지수 ETF',
     price: 11200,
     dividendYield: 3.85,
     dividendFrequency: 'Monthly',
@@ -48,41 +53,243 @@ const INITIAL_MOCK_DATA: Asset[] = [
   }
 ];
 
+const DEFAULT_SIMULATION_ASSETS: Asset[] = [
+  {
+    id: 'sim-1',
+    ticker: 'AAPL',
+    name: '애플 (Apple)',
+    type: 'Stock',
+    sector: '기술 (IT)',
+    price: 220000,
+    dividendYield: 0.6,
+    dividendFrequency: 'Quarterly',
+    shares: 50,
+    averageCost: 195000,
+  },
+  {
+    id: 'sim-2',
+    ticker: 'JEPI',
+    name: 'JPMorgan Equity Premium Income',
+    type: 'ETF',
+    sector: '배당 / 지수 ETF',
+    price: 76000,
+    dividendYield: 7.2,
+    dividendFrequency: 'Monthly',
+    shares: 200,
+    averageCost: 73000,
+  },
+  {
+    id: 'sim-3',
+    ticker: 'O',
+    name: '리얼티인컴 (Realty Income)',
+    type: 'Stock',
+    sector: '리츠 / 부동산',
+    price: 72000,
+    dividendYield: 5.5,
+    dividendFrequency: 'Monthly',
+    shares: 150,
+    averageCost: 68000,
+  },
+  {
+    id: 'sim-4',
+    ticker: '458730',
+    name: 'TIGER 미국배당다우존스',
+    type: 'ETF',
+    sector: '배당 / 지수 ETF',
+    price: 10850,
+    dividendYield: 3.8,
+    dividendFrequency: 'Monthly',
+    shares: 1000,
+    averageCost: 10500,
+  }
+];
+
+const INITIAL_PORTFOLIOS: Portfolio[] = [
+  {
+    id: 'real-main',
+    name: '실제 보유 포트폴리오',
+    isReal: true,
+    description: '현재 증권계좌에서 실제로 보유 중인 핵심 자산',
+    assets: DEFAULT_REAL_ASSETS,
+  },
+  {
+    id: 'sim-retirement',
+    name: '🌴 은퇴 대비 월 100만원 시뮬레이션',
+    isReal: false,
+    description: '목표 배당금을 달성하기 위한 고배당 및 월배당 ETF 조합 실험',
+    assets: DEFAULT_SIMULATION_ASSETS,
+  }
+];
+
 export function usePortfolio() {
-  const [assets, setAssets] = useState<Asset[]>([]);
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [activePortfolioId, setActivePortfolioId] = useState<string>('real-main');
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // Initialize
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
+    const storedPortfolios = localStorage.getItem(PORTFOLIOS_STORAGE_KEY);
+    const storedActiveId = localStorage.getItem(ACTIVE_KEY);
+
+    if (storedPortfolios) {
       try {
-        setAssets(JSON.parse(stored));
+        const parsed = JSON.parse(storedPortfolios);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setPortfolios(parsed);
+          if (storedActiveId && parsed.some((p: Portfolio) => p.id === storedActiveId)) {
+            setActivePortfolioId(storedActiveId);
+          } else {
+            setActivePortfolioId(parsed[0].id);
+          }
+          setIsLoaded(true);
+          return;
+        }
       } catch (e) {
-        setAssets(INITIAL_MOCK_DATA);
+        console.error('Failed to parse portfolios storage', e);
       }
-    } else {
-      setAssets(INITIAL_MOCK_DATA);
     }
+
+    // Migration from old STORAGE_KEY
+    const oldStored = localStorage.getItem(OLD_STORAGE_KEY);
+    if (oldStored) {
+      try {
+        const oldAssets = JSON.parse(oldStored);
+        if (Array.isArray(oldAssets)) {
+          const migratedPortfolios: Portfolio[] = [
+            {
+              id: 'real-main',
+              name: '실제 보유 포트폴리오',
+              isReal: true,
+              description: '현재 실제 보유 중인 계좌 자산',
+              assets: oldAssets,
+            },
+            INITIAL_PORTFOLIOS[1]
+          ];
+          setPortfolios(migratedPortfolios);
+          setActivePortfolioId('real-main');
+          setIsLoaded(true);
+          return;
+        }
+      } catch (e) {
+        console.error('Migration failed', e);
+      }
+    }
+
+    // Default Fallback
+    setPortfolios(INITIAL_PORTFOLIOS);
+    setActivePortfolioId(INITIAL_PORTFOLIOS[0].id);
     setIsLoaded(true);
   }, []);
 
+  // Sync to LocalStorage
   useEffect(() => {
     if (isLoaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(assets));
+      localStorage.setItem(PORTFOLIOS_STORAGE_KEY, JSON.stringify(portfolios));
+      localStorage.setItem(ACTIVE_KEY, activePortfolioId);
     }
-  }, [assets, isLoaded]);
+  }, [portfolios, activePortfolioId, isLoaded]);
 
+  // Active Portfolio object
+  const activePortfolio = useMemo(() => {
+    return portfolios.find((p) => p.id === activePortfolioId) || portfolios[0] || {
+      id: 'default',
+      name: '기본 포트폴리오',
+      isReal: true,
+      assets: [],
+    };
+  }, [portfolios, activePortfolioId]);
+
+  const assets = activePortfolio.assets || [];
+
+  // Asset CRUD inside active portfolio
   const addAsset = (asset: Omit<Asset, 'id'>) => {
     const newAsset: Asset = { ...asset, id: crypto.randomUUID() };
-    setAssets((prev) => [...prev, newAsset]);
+    setPortfolios((prev) =>
+      prev.map((p) =>
+        p.id === activePortfolioId
+          ? { ...p, assets: [...p.assets, newAsset] }
+          : p
+      )
+    );
   };
 
   const updateAsset = (id: string, updated: Partial<Asset>) => {
-    setAssets((prev) => prev.map((a) => (a.id === id ? { ...a, ...updated } : a)));
+    setPortfolios((prev) =>
+      prev.map((p) =>
+        p.id === activePortfolioId
+          ? {
+              ...p,
+              assets: p.assets.map((a) => (a.id === id ? { ...a, ...updated } : a)),
+            }
+          : p
+      )
+    );
   };
 
   const deleteAsset = (id: string) => {
-    setAssets((prev) => prev.filter((a) => a.id !== id));
+    setPortfolios((prev) =>
+      prev.map((p) =>
+        p.id === activePortfolioId
+          ? {
+              ...p,
+              assets: p.assets.filter((a) => a.id !== id),
+            }
+          : p
+      )
+    );
+  };
+
+  // Portfolio Management Methods
+  const selectPortfolio = (id: string) => {
+    if (portfolios.some((p) => p.id === id)) {
+      setActivePortfolioId(id);
+    }
+  };
+
+  const createPortfolio = (name: string, isReal: boolean, description?: string, initialAssets?: Asset[]) => {
+    const newId = `p-${crypto.randomUUID()}`;
+    const newPortfolio: Portfolio = {
+      id: newId,
+      name,
+      isReal,
+      description: description || (isReal ? '실제 자산 포트폴리오' : '가상 시뮬레이션 포트폴리오'),
+      assets: initialAssets ? JSON.parse(JSON.stringify(initialAssets)) : [],
+    };
+    setPortfolios((prev) => [...prev, newPortfolio]);
+    setActivePortfolioId(newId);
+  };
+
+  const duplicatePortfolio = (sourceId: string, newName?: string) => {
+    const source = portfolios.find((p) => p.id === sourceId);
+    if (!source) return;
+    const newId = `p-${crypto.randomUUID()}`;
+    const duplicated: Portfolio = {
+      id: newId,
+      name: newName || `${source.name} (사본)`,
+      isReal: false, // 복사본은 시뮬레이션으로 지정
+      description: `'${source.name}' 포트폴리오에서 복사하여 생성한 가상 시뮬레이션`,
+      assets: JSON.parse(JSON.stringify(source.assets)),
+    };
+    setPortfolios((prev) => [...prev, duplicated]);
+    setActivePortfolioId(newId);
+  };
+
+  const updatePortfolioMeta = (id: string, meta: { name?: string; description?: string; isReal?: boolean }) => {
+    setPortfolios((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...meta } : p))
+    );
+  };
+
+  const deletePortfolio = (id: string) => {
+    if (portfolios.length <= 1) {
+      alert('최소 하나의 포트폴리오는 유지되어야 합니다.');
+      return;
+    }
+    const filtered = portfolios.filter((p) => p.id !== id);
+    setPortfolios(filtered);
+    if (activePortfolioId === id) {
+      setActivePortfolioId(filtered[0].id);
+    }
   };
 
   const stats: PortfolioStats = useMemo(() => {
@@ -105,5 +312,20 @@ export function usePortfolio() {
     return { totalValue, totalCost, annualDividend, dividendYield };
   }, [assets]);
 
-  return { assets, stats, addAsset, updateAsset, deleteAsset };
+  return {
+    portfolios,
+    activePortfolio,
+    activePortfolioId,
+    assets,
+    stats,
+    addAsset,
+    updateAsset,
+    deleteAsset,
+    selectPortfolio,
+    createPortfolio,
+    duplicatePortfolio,
+    updatePortfolioMeta,
+    deletePortfolio,
+  };
 }
+

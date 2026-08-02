@@ -28,12 +28,14 @@ import {
   Building2,
   ChevronRight as ArrowRightIcon,
   Filter,
-  ChevronDown
+  ChevronDown,
+  Receipt
 } from 'lucide-react';
 import { Asset } from '../types';
 import { cn, formatCurrency } from '../lib/utils';
 import { AssetDetailModal } from './AssetDetailModal';
 import { ThisMonthDividendModal } from './ThisMonthDividendModal';
+import { DividendLedger } from './DividendLedger';
 
 interface CalendarViewProps {
   assets: Asset[];
@@ -42,6 +44,7 @@ interface CalendarViewProps {
 type ViewMode = 'calendar' | 'list' | 'grid';
 
 export function CalendarView({ assets }: CalendarViewProps) {
+  const [tabMode, setTabMode] = useState<'calendar' | 'ledger'>('calendar');
   const [viewMode, setViewMode] = useState<ViewMode>('calendar');
   const [calendarScale, setCalendarScale] = useState<'month' | 'week' | 'year'>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -189,35 +192,65 @@ export function CalendarView({ assets }: CalendarViewProps) {
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5 animate-in fade-in duration-500 w-full grow shrink-0 flex flex-col">
-      {/* Title & Quick Stats Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1 border-b border-slate-100">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">배당 캘린더</h2>
-          <p className="text-slate-500 text-sm mt-0.5">배당락일 및 배당 지급일 일정을 한눈에 확인하세요.</p>
-        </div>
-
-        {/* Overview Badges */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsMonthModalOpen(true)}
-            className="bg-slate-50 hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-300 px-3 py-1.5 rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer group active:scale-95 shadow-2xs"
-            title="클릭하여 이번 달 배당 지급 종목 목록 보기"
-          >
-            <span className="text-slate-600 group-hover:text-blue-700 font-medium">이번 달 지급 종목</span>
-            <span className="font-bold text-blue-600 bg-blue-100/80 group-hover:bg-blue-600 group-hover:text-white px-2 py-0.5 rounded-md font-mono transition-colors">{thisMonthEventsCount}개</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsMonthModalOpen(true)}
-            className="bg-slate-50 hover:bg-emerald-50/70 border border-slate-200/80 hover:border-emerald-300 px-3 py-1.5 rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer group active:scale-95 shadow-2xs"
-            title="클릭하여 이번 달 배당금 내역 보기"
-          >
-            <span className="text-slate-600 group-hover:text-emerald-700 font-medium">이번 달 예상 배당</span>
-            <span className="font-bold text-emerald-600 group-hover:text-emerald-700 font-mono text-xs sm:text-sm">{formatCurrency(thisMonthEstSum)}</span>
-          </button>
-        </div>
+      {/* Sub-tab Navigation */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          onClick={() => setTabMode('calendar')}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+            tabMode === 'calendar'
+              ? "bg-slate-900 text-white shadow-xs"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          )}
+        >
+          <CalendarIcon className="w-4 h-4" /> 배당 일정 캘린더
+        </button>
+        <button
+          onClick={() => setTabMode('ledger')}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+            tabMode === 'ledger'
+              ? "bg-emerald-600 text-white shadow-xs"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          )}
+        >
+          <Receipt className="w-4 h-4" /> 실제 배당 수령 가계부
+        </button>
       </div>
+
+      {tabMode === 'ledger' ? (
+        <DividendLedger assets={assets} />
+      ) : (
+        <>
+          {/* Title & Quick Stats Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1 border-b border-slate-100">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800 tracking-tight">배당 캘린더</h2>
+              <p className="text-slate-500 text-sm mt-0.5">배당락일 및 배당 지급일 일정을 한눈에 확인하세요.</p>
+            </div>
+
+            {/* Overview Badges */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsMonthModalOpen(true)}
+                className="bg-slate-50 hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-300 px-3 py-1.5 rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer group active:scale-95 shadow-2xs"
+                title="클릭하여 이번 달 배당 지급 종목 목록 보기"
+              >
+                <span className="text-slate-600 group-hover:text-blue-700 font-medium">이번 달 지급 종목</span>
+                <span className="font-bold text-blue-600 bg-blue-100/80 group-hover:bg-blue-600 group-hover:text-white px-2 py-0.5 rounded-md font-mono transition-colors">{thisMonthEventsCount}개</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsMonthModalOpen(true)}
+                className="bg-slate-50 hover:bg-emerald-50/70 border border-slate-200/80 hover:border-emerald-300 px-3 py-1.5 rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer group active:scale-95 shadow-2xs"
+                title="클릭하여 이번 달 배당금 내역 보기"
+              >
+                <span className="text-slate-600 group-hover:text-emerald-700 font-medium">이번 달 예상 배당</span>
+                <span className="font-bold text-emerald-600 group-hover:text-emerald-700 font-mono text-xs sm:text-sm">{formatCurrency(thisMonthEstSum)}</span>
+              </button>
+            </div>
+          </div>
 
       {/* Unified Toolbar */}
       <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
@@ -739,6 +772,8 @@ export function CalendarView({ assets }: CalendarViewProps) {
         assets={filteredAssets}
         onSelectAsset={(asset) => setModalAsset(asset)}
       />
+        </>
+      )}
     </div>
   );
 }
