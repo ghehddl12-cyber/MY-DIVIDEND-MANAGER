@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Asset, DividendRecord } from '../types';
 import { formatCurrency } from '../lib/utils';
+import { supabase } from '../lib/supabaseClient';
 import { 
   Receipt, 
   Plus, 
@@ -16,13 +17,11 @@ import {
 
 interface DividendLedgerProps {
   assets: Asset[];
+  userId: string;
 }
 
-const STORAGE_KEY = 'divitrack_dividend_records_v1';
-
-const INITIAL_RECORDS: DividendRecord[] = [
+const INITIAL_RECORDS: Omit<DividendRecord, 'id'>[] = [
   {
-    id: 'rec-1',
     ticker: '458730',
     assetName: 'TIGER 미국배당다우존스',
     receivedDate: '2026-07-15',
@@ -31,7 +30,6 @@ const INITIAL_RECORDS: DividendRecord[] = [
     memo: '7월 정기 분배금 입금',
   },
   {
-    id: 'rec-2',
     ticker: '448290',
     assetName: 'SOL 미국배당다우존스',
     receivedDate: '2026-07-02',
@@ -40,7 +38,6 @@ const INITIAL_RECORDS: DividendRecord[] = [
     memo: '7월 월배당 수령',
   },
   {
-    id: 'rec-3',
     ticker: '441680',
     assetName: 'ACE 미국배당다우존스',
     receivedDate: '2026-06-16',
@@ -50,7 +47,44 @@ const INITIAL_RECORDS: DividendRecord[] = [
   }
 ];
 
-export function DividendLedger({ assets }: DividendLedgerProps) {
+type DividendRecordRow = {
+  id: string;
+  asset_id: string | null;
+  ticker: string;
+  asset_name: string;
+  received_date: string;
+  amount: number;
+  tax: number | null;
+  memo: string | null;
+};
+
+function recordFromRow(row: DividendRecordRow): DividendRecord {
+  return {
+    id: row.id,
+    assetId: row.asset_id ?? undefined,
+    ticker: row.ticker,
+    assetName: row.asset_name,
+    receivedDate: row.received_date,
+    amount: Number(row.amount),
+    tax: row.tax != null ? Number(row.tax) : undefined,
+    memo: row.memo ?? undefined,
+  };
+}
+
+function recordToInsertRow(rec: Omit<DividendRecord, 'id'>, userId: string) {
+  return {
+    user_id: userId,
+    asset_id: rec.assetId ?? null,
+    ticker: rec.ticker,
+    asset_name: rec.assetName,
+    received_date: rec.receivedDate,
+    amount: rec.amount,
+    tax: rec.tax ?? null,
+    memo: rec.memo ?? null,
+  };
+}
+
+export function DividendLedger({ assets, userId }: DividendLedgerProps) {
   const [records, setRecords] = useState<DividendRecord[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -66,27 +100,48 @@ export function DividendLedger({ assets }: DividendLedgerProps) {
   const [tax, setTax] = useState<number | ''>('');
   const [memo, setMemo] = useState('');
 
-  // Load from local storage
+  // Load from Supabase (신규 사용자는 예시 기록으로 시딩)
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        setRecords(JSON.parse(stored));
-      } catch (e) {
-        setRecords(INITIAL_RECORDS);
-      }
-    } else {
-      setRecords(INITIAL_RECORDS);
-    }
-    setIsLoaded(true);
-  }, []);
+    let cancelled = false;
 
-  // Save to local storage
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    async function load() {
+      const { data, error } = await supabase
+        .from('dividend_records')
+        .select('*')
+        .eq('user_id', userId)
+        .order('received_date', { ascending: false });
+
+      if (error) {
+        console.error('배당 기록 조회 실패', error);
+        setIsLoaded(true);
+        return;
+      }
+
+      let rows = data ?? [];
+
+      if (rows.length === 0) {
+        const { data: seeded, error: seedErr } = await supabase
+          .from('dividend_records')
+          .insert(INITIAL_RECORDS.map((r) => recordToInsertRow(r, userId)))
+          .select('*');
+        if (seedErr) {
+          console.error('배당 기록 시딩 실패', seedErr);
+        } else {
+          rows = seeded ?? [];
+        }
+      }
+
+      if (!cancelled) {
+        setRecords(rows.map((row) => recordFromRow(row as DividendRecordRow)));
+        setIsLoaded(true);
+      }
     }
-  }, [records, isLoaded]);
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   // Year options based on records
   const availableYears = useMemo(() => {
@@ -171,41 +226,68 @@ export function DividendLedger({ assets }: DividendLedgerProps) {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!amount || Number(amount) <= 0 || !customName.trim()) return;
+
+    const assetId = selectedAssetId === 'custom' ? undefined : selectedAssetId || undefined;
+    const ticker = customTicker.trim() || 'CUSTOM';
+    const assetName = customName.trim();
+    const trimmedMemo = memo.trim();
+    const taxValue = tax ? Number(tax) : 0;
 
     if (editingRecord) {
       setRecords(prev => prev.map(r => r.id === editingRecord.id ? {
         ...r,
-        assetId: selectedAssetId === 'custom' ? undefined : selectedAssetId,
-        ticker: customTicker.trim() || 'CUSTOM',
-        assetName: customName.trim(),
+        assetId,
+        ticker,
+        assetName,
         receivedDate,
         amount: Number(amount),
-        tax: tax ? Number(tax) : 0,
-        memo: memo.trim(),
+        tax: taxValue,
+        memo: trimmedMemo,
       } : r));
+
+      const { error } = await supabase
+        .from('dividend_records')
+        .update({
+          asset_id: assetId ?? null,
+          ticker,
+          asset_name: assetName,
+          received_date: receivedDate,
+          amount: Number(amount),
+          tax: taxValue,
+          memo: trimmedMemo || null,
+        })
+        .eq('id', editingRecord.id);
+      if (error) console.error('배당 기록 수정 실패', error);
     } else {
-      const newRec: DividendRecord = {
-        id: `rec-${crypto.randomUUID()}`,
-        assetId: selectedAssetId === 'custom' ? undefined : selectedAssetId,
-        ticker: customTicker.trim() || 'CUSTOM',
-        assetName: customName.trim(),
-        receivedDate,
-        amount: Number(amount),
-        tax: tax ? Number(tax) : 0,
-        memo: memo.trim(),
-      };
-      setRecords(prev => [newRec, ...prev]);
+      const { data, error } = await supabase
+        .from('dividend_records')
+        .insert(
+          recordToInsertRow(
+            { assetId, ticker, assetName, receivedDate, amount: Number(amount), tax: taxValue, memo: trimmedMemo },
+            userId
+          )
+        )
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        console.error('배당 기록 추가 실패', error);
+      } else {
+        setRecords(prev => [recordFromRow(data as DividendRecordRow), ...prev]);
+      }
     }
 
     setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('해당 배당 수령 기록을 삭제하시겠습니까?')) {
       setRecords(prev => prev.filter(r => r.id !== id));
+      const { error } = await supabase.from('dividend_records').delete().eq('id', id);
+      if (error) console.error('배당 기록 삭제 실패', error);
     }
   };
 
