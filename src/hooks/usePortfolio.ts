@@ -1,13 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Asset, Portfolio, PortfolioStats } from '../types';
+import { supabase } from '../lib/supabaseClient';
 
-const PORTFOLIOS_STORAGE_KEY = 'divitrack_portfolios_v3';
-const ACTIVE_KEY = 'divitrack_active_portfolio_id_v3';
-const OLD_STORAGE_KEY = 'divitrack_portfolio_v2';
-
-const DEFAULT_REAL_ASSETS: Asset[] = [
+const DEFAULT_REAL_ASSETS: Omit<Asset, 'id'>[] = [
   {
-    id: '1',
     ticker: '458730',
     name: 'TIGER 미국배당다우존스',
     type: 'ETF',
@@ -22,7 +18,6 @@ const DEFAULT_REAL_ASSETS: Asset[] = [
     lastPurchasePrice: 10450,
   },
   {
-    id: '2',
     ticker: '448290',
     name: 'SOL 미국배당다우존스',
     type: 'ETF',
@@ -37,7 +32,6 @@ const DEFAULT_REAL_ASSETS: Asset[] = [
     lastPurchasePrice: 10300,
   },
   {
-    id: '3',
     ticker: '441680',
     name: 'ACE 미국배당다우존스',
     type: 'ETF',
@@ -50,12 +44,11 @@ const DEFAULT_REAL_ASSETS: Asset[] = [
     shares: 400,
     averageCost: 10800,
     lastPurchasePrice: 10950,
-  }
+  },
 ];
 
-const DEFAULT_SIMULATION_ASSETS: Asset[] = [
+const DEFAULT_SIMULATION_ASSETS: Omit<Asset, 'id'>[] = [
   {
-    id: 'sim-1',
     ticker: 'AAPL',
     name: '애플 (Apple)',
     type: 'Stock',
@@ -67,7 +60,6 @@ const DEFAULT_SIMULATION_ASSETS: Asset[] = [
     averageCost: 195000,
   },
   {
-    id: 'sim-2',
     ticker: 'JEPI',
     name: 'JPMorgan Equity Premium Income',
     type: 'ETF',
@@ -79,7 +71,6 @@ const DEFAULT_SIMULATION_ASSETS: Asset[] = [
     averageCost: 73000,
   },
   {
-    id: 'sim-3',
     ticker: 'O',
     name: '리얼티인컴 (Realty Income)',
     type: 'Stock',
@@ -91,7 +82,6 @@ const DEFAULT_SIMULATION_ASSETS: Asset[] = [
     averageCost: 68000,
   },
   {
-    id: 'sim-4',
     ticker: '458730',
     name: 'TIGER 미국배당다우존스',
     type: 'ETF',
@@ -101,196 +91,354 @@ const DEFAULT_SIMULATION_ASSETS: Asset[] = [
     dividendFrequency: 'Monthly',
     shares: 1000,
     averageCost: 10500,
-  }
-];
-
-const INITIAL_PORTFOLIOS: Portfolio[] = [
-  {
-    id: 'real-main',
-    name: '실제 보유 포트폴리오',
-    isReal: true,
-    description: '현재 증권계좌에서 실제로 보유 중인 핵심 자산',
-    assets: DEFAULT_REAL_ASSETS,
   },
-  {
-    id: 'sim-retirement',
-    name: '🌴 은퇴 대비 월 100만원 시뮬레이션',
-    isReal: false,
-    description: '목표 배당금을 달성하기 위한 고배당 및 월배당 ETF 조합 실험',
-    assets: DEFAULT_SIMULATION_ASSETS,
-  }
 ];
 
-export function usePortfolio() {
+// ---- DB <-> App 타입 매핑 ----
+type AssetRow = {
+  id: string;
+  portfolio_id: string;
+  ticker: string;
+  name: string;
+  type: string;
+  sector: string | null;
+  price: number;
+  dividend_yield: number;
+  dividend_frequency: string;
+  ex_dividend_date: string | null;
+  payment_date: string | null;
+  shares: number;
+  average_cost: number;
+  last_purchase_price: number | null;
+};
+
+type PortfolioRow = {
+  id: string;
+  name: string;
+  is_real: boolean;
+  description: string | null;
+};
+
+function assetFromRow(row: AssetRow): Asset {
+  return {
+    id: row.id,
+    ticker: row.ticker,
+    name: row.name,
+    type: row.type as Asset['type'],
+    sector: (row.sector ?? undefined) as Asset['sector'],
+    price: Number(row.price),
+    dividendYield: Number(row.dividend_yield),
+    dividendFrequency: row.dividend_frequency as Asset['dividendFrequency'],
+    exDividendDate: row.ex_dividend_date ?? undefined,
+    paymentDate: row.payment_date ?? undefined,
+    shares: Number(row.shares),
+    averageCost: Number(row.average_cost),
+    lastPurchasePrice: row.last_purchase_price != null ? Number(row.last_purchase_price) : undefined,
+  };
+}
+
+function assetToRow(asset: Omit<Asset, 'id'>, portfolioId: string, userId: string) {
+  return {
+    portfolio_id: portfolioId,
+    user_id: userId,
+    ticker: asset.ticker,
+    name: asset.name,
+    type: asset.type,
+    sector: asset.sector ?? null,
+    price: asset.price,
+    dividend_yield: asset.dividendYield,
+    dividend_frequency: asset.dividendFrequency,
+    ex_dividend_date: asset.exDividendDate ?? null,
+    payment_date: asset.paymentDate ?? null,
+    shares: asset.shares,
+    average_cost: asset.averageCost,
+    last_purchase_price: asset.lastPurchasePrice ?? null,
+  };
+}
+
+function assetUpdatesToRow(updated: Partial<Asset>) {
+  const row: Record<string, unknown> = {};
+  if (updated.ticker !== undefined) row.ticker = updated.ticker;
+  if (updated.name !== undefined) row.name = updated.name;
+  if (updated.type !== undefined) row.type = updated.type;
+  if (updated.sector !== undefined) row.sector = updated.sector ?? null;
+  if (updated.price !== undefined) row.price = updated.price;
+  if (updated.dividendYield !== undefined) row.dividend_yield = updated.dividendYield;
+  if (updated.dividendFrequency !== undefined) row.dividend_frequency = updated.dividendFrequency;
+  if (updated.exDividendDate !== undefined) row.ex_dividend_date = updated.exDividendDate ?? null;
+  if (updated.paymentDate !== undefined) row.payment_date = updated.paymentDate ?? null;
+  if (updated.shares !== undefined) row.shares = updated.shares;
+  if (updated.averageCost !== undefined) row.average_cost = updated.averageCost;
+  if (updated.lastPurchasePrice !== undefined) row.last_purchase_price = updated.lastPurchasePrice ?? null;
+  row.updated_at = new Date().toISOString();
+  return row;
+}
+
+export function usePortfolio(userId: string) {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
-  const [activePortfolioId, setActivePortfolioId] = useState<string>('real-main');
+  const [activePortfolioId, setActivePortfolioId] = useState<string>('');
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Initialize
+  // 최초 로드: DB에서 포트폴리오 + 자산을 가져오고, 데이터가 없으면 기본값을 시딩
   useEffect(() => {
-    const storedPortfolios = localStorage.getItem(PORTFOLIOS_STORAGE_KEY);
-    const storedActiveId = localStorage.getItem(ACTIVE_KEY);
+    let cancelled = false;
 
-    if (storedPortfolios) {
-      try {
-        const parsed = JSON.parse(storedPortfolios);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setPortfolios(parsed);
-          if (storedActiveId && parsed.some((p: Portfolio) => p.id === storedActiveId)) {
-            setActivePortfolioId(storedActiveId);
-          } else {
-            setActivePortfolioId(parsed[0].id);
-          }
+    async function load() {
+      const { data: portfolioRows, error: pErr } = await supabase
+        .from('portfolios')
+        .select('id, name, is_real, description')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true });
+
+      if (pErr) {
+        console.error('포트폴리오 조회 실패', pErr);
+        setIsLoaded(true);
+        return;
+      }
+
+      let rows: PortfolioRow[] = portfolioRows ?? [];
+
+      if (rows.length === 0) {
+        // 신규 사용자: 기본 포트폴리오 2개 + 자산 시딩
+        const { data: seeded, error: seedErr } = await supabase
+          .from('portfolios')
+          .insert([
+            { user_id: userId, name: '실제 보유 포트폴리오', is_real: true, description: '현재 증권계좌에서 실제로 보유 중인 핵심 자산' },
+            { user_id: userId, name: '🌴 은퇴 대비 월 100만원 시뮬레이션', is_real: false, description: '목표 배당금을 달성하기 위한 고배당 및 월배당 ETF 조합 실험' },
+          ])
+          .select('id, name, is_real, description');
+
+        if (seedErr || !seeded) {
+          console.error('기본 포트폴리오 생성 실패', seedErr);
           setIsLoaded(true);
           return;
         }
-      } catch (e) {
-        console.error('Failed to parse portfolios storage', e);
-      }
-    }
+        rows = seeded;
 
-    // Migration from old STORAGE_KEY
-    const oldStored = localStorage.getItem(OLD_STORAGE_KEY);
-    if (oldStored) {
-      try {
-        const oldAssets = JSON.parse(oldStored);
-        if (Array.isArray(oldAssets)) {
-          const migratedPortfolios: Portfolio[] = [
-            {
-              id: 'real-main',
-              name: '실제 보유 포트폴리오',
-              isReal: true,
-              description: '현재 실제 보유 중인 계좌 자산',
-              assets: oldAssets,
-            },
-            INITIAL_PORTFOLIOS[1]
-          ];
-          setPortfolios(migratedPortfolios);
-          setActivePortfolioId('real-main');
-          setIsLoaded(true);
-          return;
+        const realPortfolioId = seeded[0].id;
+        const simPortfolioId = seeded[1].id;
+
+        const assetInserts = [
+          ...DEFAULT_REAL_ASSETS.map((a) => assetToRow(a, realPortfolioId, userId)),
+          ...DEFAULT_SIMULATION_ASSETS.map((a) => assetToRow(a, simPortfolioId, userId)),
+        ];
+        const { error: assetSeedErr } = await supabase.from('assets').insert(assetInserts);
+        if (assetSeedErr) {
+          console.error('기본 자산 생성 실패', assetSeedErr);
         }
-      } catch (e) {
-        console.error('Migration failed', e);
+      }
+
+      const { data: assetRows, error: aErr } = await supabase
+        .from('assets')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (aErr) {
+        console.error('자산 조회 실패', aErr);
+      }
+
+      const assetsByPortfolio = new Map<string, Asset[]>();
+      (assetRows ?? []).forEach((row) => {
+        const list = assetsByPortfolio.get(row.portfolio_id) ?? [];
+        list.push(assetFromRow(row as AssetRow));
+        assetsByPortfolio.set(row.portfolio_id, list);
+      });
+
+      const assembled: Portfolio[] = rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        isReal: r.is_real,
+        description: r.description ?? undefined,
+        assets: assetsByPortfolio.get(r.id) ?? [],
+      }));
+
+      // 마지막으로 선택했던 포트폴리오 복원
+      const { data: settingRow } = await supabase
+        .from('user_settings')
+        .select('value')
+        .eq('user_id', userId)
+        .eq('key', 'active_portfolio_id')
+        .maybeSingle();
+
+      const savedActiveId = (settingRow?.value as string | undefined) ?? undefined;
+
+      if (!cancelled) {
+        setPortfolios(assembled);
+        setActivePortfolioId(
+          savedActiveId && assembled.some((p) => p.id === savedActiveId) ? savedActiveId : assembled[0]?.id ?? ''
+        );
+        setIsLoaded(true);
       }
     }
 
-    // Default Fallback
-    setPortfolios(INITIAL_PORTFOLIOS);
-    setActivePortfolioId(INITIAL_PORTFOLIOS[0].id);
-    setIsLoaded(true);
-  }, []);
-
-  // Sync to LocalStorage
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem(PORTFOLIOS_STORAGE_KEY, JSON.stringify(portfolios));
-      localStorage.setItem(ACTIVE_KEY, activePortfolioId);
-    }
-  }, [portfolios, activePortfolioId, isLoaded]);
-
-  // Active Portfolio object
-  const activePortfolio = useMemo(() => {
-    return portfolios.find((p) => p.id === activePortfolioId) || portfolios[0] || {
-      id: 'default',
-      name: '기본 포트폴리오',
-      isReal: true,
-      assets: [],
+    load();
+    return () => {
+      cancelled = true;
     };
+  }, [userId]);
+
+  // 활성 포트폴리오 선택을 user_settings에 저장 (기기 간 동기화)
+  useEffect(() => {
+    if (isLoaded && activePortfolioId) {
+      supabase
+        .from('user_settings')
+        .upsert({ user_id: userId, key: 'active_portfolio_id', value: activePortfolioId, updated_at: new Date().toISOString() })
+        .then(({ error }) => {
+          if (error) console.error('활성 포트폴리오 저장 실패', error);
+        });
+    }
+  }, [activePortfolioId, isLoaded, userId]);
+
+  const activePortfolio = useMemo(() => {
+    return (
+      portfolios.find((p) => p.id === activePortfolioId) ||
+      portfolios[0] || { id: 'default', name: '기본 포트폴리오', isReal: true, assets: [] }
+    );
   }, [portfolios, activePortfolioId]);
 
   const assets = activePortfolio.assets || [];
 
-  // Asset CRUD inside active portfolio
-  const addAsset = (asset: Omit<Asset, 'id'>) => {
-    const newAsset: Asset = { ...asset, id: crypto.randomUUID() };
-    setPortfolios((prev) =>
-      prev.map((p) =>
-        p.id === activePortfolioId
-          ? { ...p, assets: [...p.assets, newAsset] }
-          : p
-      )
-    );
-  };
+  const addAsset = useCallback(
+    async (asset: Omit<Asset, 'id'>) => {
+      const { data, error } = await supabase
+        .from('assets')
+        .insert(assetToRow(asset, activePortfolioId, userId))
+        .select('*')
+        .single();
 
-  const updateAsset = (id: string, updated: Partial<Asset>) => {
-    setPortfolios((prev) =>
-      prev.map((p) =>
-        p.id === activePortfolioId
-          ? {
-              ...p,
-              assets: p.assets.map((a) => (a.id === id ? { ...a, ...updated } : a)),
-            }
-          : p
-      )
-    );
-  };
+      if (error || !data) {
+        console.error('자산 추가 실패', error);
+        return;
+      }
+      const newAsset = assetFromRow(data as AssetRow);
+      setPortfolios((prev) =>
+        prev.map((p) => (p.id === activePortfolioId ? { ...p, assets: [...p.assets, newAsset] } : p))
+      );
+    },
+    [activePortfolioId, userId]
+  );
 
-  const deleteAsset = (id: string) => {
-    setPortfolios((prev) =>
-      prev.map((p) =>
-        p.id === activePortfolioId
-          ? {
-              ...p,
-              assets: p.assets.filter((a) => a.id !== id),
-            }
-          : p
-      )
-    );
-  };
+  const updateAsset = useCallback(
+    async (id: string, updated: Partial<Asset>) => {
+      // 낙관적 업데이트
+      setPortfolios((prev) =>
+        prev.map((p) =>
+          p.id === activePortfolioId
+            ? { ...p, assets: p.assets.map((a) => (a.id === id ? { ...a, ...updated } : a)) }
+            : p
+        )
+      );
+      const { error } = await supabase.from('assets').update(assetUpdatesToRow(updated)).eq('id', id);
+      if (error) console.error('자산 수정 실패', error);
+    },
+    [activePortfolioId]
+  );
 
-  // Portfolio Management Methods
-  const selectPortfolio = (id: string) => {
-    if (portfolios.some((p) => p.id === id)) {
-      setActivePortfolioId(id);
-    }
-  };
+  const deleteAsset = useCallback(
+    async (id: string) => {
+      setPortfolios((prev) =>
+        prev.map((p) => (p.id === activePortfolioId ? { ...p, assets: p.assets.filter((a) => a.id !== id) } : p))
+      );
+      const { error } = await supabase.from('assets').delete().eq('id', id);
+      if (error) console.error('자산 삭제 실패', error);
+    },
+    [activePortfolioId]
+  );
 
-  const createPortfolio = (name: string, isReal: boolean, description?: string, initialAssets?: Asset[]) => {
-    const newId = `p-${crypto.randomUUID()}`;
-    const newPortfolio: Portfolio = {
-      id: newId,
-      name,
-      isReal,
-      description: description || (isReal ? '실제 자산 포트폴리오' : '가상 시뮬레이션 포트폴리오'),
-      assets: initialAssets ? JSON.parse(JSON.stringify(initialAssets)) : [],
-    };
-    setPortfolios((prev) => [...prev, newPortfolio]);
-    setActivePortfolioId(newId);
-  };
+  const selectPortfolio = useCallback(
+    (id: string) => {
+      if (portfolios.some((p) => p.id === id)) {
+        setActivePortfolioId(id);
+      }
+    },
+    [portfolios]
+  );
 
-  const duplicatePortfolio = (sourceId: string, newName?: string) => {
-    const source = portfolios.find((p) => p.id === sourceId);
-    if (!source) return;
-    const newId = `p-${crypto.randomUUID()}`;
-    const duplicated: Portfolio = {
-      id: newId,
-      name: newName || `${source.name} (사본)`,
-      isReal: false, // 복사본은 시뮬레이션으로 지정
-      description: `'${source.name}' 포트폴리오에서 복사하여 생성한 가상 시뮬레이션`,
-      assets: JSON.parse(JSON.stringify(source.assets)),
-    };
-    setPortfolios((prev) => [...prev, duplicated]);
-    setActivePortfolioId(newId);
-  };
+  const createPortfolio = useCallback(
+    async (name: string, isReal: boolean, description?: string, initialAssets?: Asset[]) => {
+      const { data, error } = await supabase
+        .from('portfolios')
+        .insert({
+          user_id: userId,
+          name,
+          is_real: isReal,
+          description: description || (isReal ? '실제 자산 포트폴리오' : '가상 시뮬레이션 포트폴리오'),
+        })
+        .select('id, name, is_real, description')
+        .single();
 
-  const updatePortfolioMeta = (id: string, meta: { name?: string; description?: string; isReal?: boolean }) => {
-    setPortfolios((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, ...meta } : p))
-    );
-  };
+      if (error || !data) {
+        console.error('포트폴리오 생성 실패', error);
+        return;
+      }
 
-  const deletePortfolio = (id: string) => {
-    if (portfolios.length <= 1) {
-      alert('최소 하나의 포트폴리오는 유지되어야 합니다.');
-      return;
-    }
-    const filtered = portfolios.filter((p) => p.id !== id);
-    setPortfolios(filtered);
-    if (activePortfolioId === id) {
-      setActivePortfolioId(filtered[0].id);
-    }
-  };
+      let copiedAssets: Asset[] = [];
+      if (initialAssets && initialAssets.length > 0) {
+        const inserts = initialAssets.map((a) => assetToRow(a, data.id, userId));
+        const { data: insertedAssets, error: assetErr } = await supabase.from('assets').insert(inserts).select('*');
+        if (assetErr) {
+          console.error('자산 복사 실패', assetErr);
+        } else {
+          copiedAssets = (insertedAssets ?? []).map((row) => assetFromRow(row as AssetRow));
+        }
+      }
+
+      const newPortfolio: Portfolio = {
+        id: data.id,
+        name: data.name,
+        isReal: data.is_real,
+        description: data.description ?? undefined,
+        assets: copiedAssets,
+      };
+      setPortfolios((prev) => [...prev, newPortfolio]);
+      setActivePortfolioId(newPortfolio.id);
+    },
+    [userId]
+  );
+
+  const duplicatePortfolio = useCallback(
+    async (sourceId: string, newName?: string) => {
+      const source = portfolios.find((p) => p.id === sourceId);
+      if (!source) return;
+      await createPortfolio(
+        newName || `${source.name} (사본)`,
+        false,
+        `'${source.name}' 포트폴리오에서 복사하여 생성한 가상 시뮬레이션`,
+        source.assets
+      );
+    },
+    [portfolios, createPortfolio]
+  );
+
+  const updatePortfolioMeta = useCallback(
+    async (id: string, meta: { name?: string; description?: string; isReal?: boolean }) => {
+      setPortfolios((prev) => prev.map((p) => (p.id === id ? { ...p, ...meta } : p)));
+      const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (meta.name !== undefined) row.name = meta.name;
+      if (meta.description !== undefined) row.description = meta.description;
+      if (meta.isReal !== undefined) row.is_real = meta.isReal;
+      const { error } = await supabase.from('portfolios').update(row).eq('id', id);
+      if (error) console.error('포트폴리오 수정 실패', error);
+    },
+    []
+  );
+
+  const deletePortfolio = useCallback(
+    async (id: string) => {
+      if (portfolios.length <= 1) {
+        alert('최소 하나의 포트폴리오는 유지되어야 합니다.');
+        return;
+      }
+      const filtered = portfolios.filter((p) => p.id !== id);
+      setPortfolios(filtered);
+      if (activePortfolioId === id) {
+        setActivePortfolioId(filtered[0].id);
+      }
+      const { error } = await supabase.from('portfolios').delete().eq('id', id);
+      if (error) console.error('포트폴리오 삭제 실패', error);
+    },
+    [portfolios, activePortfolioId]
+  );
 
   const stats: PortfolioStats = useMemo(() => {
     let totalValue = 0;
@@ -313,6 +461,7 @@ export function usePortfolio() {
   }, [assets]);
 
   return {
+    isLoaded,
     portfolios,
     activePortfolio,
     activePortfolioId,
@@ -328,4 +477,3 @@ export function usePortfolio() {
     deletePortfolio,
   };
 }
-
